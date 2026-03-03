@@ -35,3 +35,10 @@ TREND_LABELS = {
     "D": "↓ Descenso",
     "!": "⚠ Situación excepcional",
 }
+
+# Prefijo localizado para el estado del sensor
+LEVEL_PREFIX = {
+    "es": "Nivel",
+    "ca": "Nivell",
+    "en": "Level",
+}

@@ -14,7 +14,14 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .const import DOMAIN, BASE_URL, SCAN_INTERVAL_HOURS, LEVEL_LABELS, TREND_LABELS
+from .const import (
+    DOMAIN,
+    BASE_URL,
+    LEVEL_PREFIX,
+    SCAN_INTERVAL_HOURS,
+    LEVEL_LABELS,
+    TREND_LABELS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,9 +75,7 @@ class PIAPollenCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Error de red: {err}") from err
 
         _LOGGER.debug("PIA XML recibido (%d bytes) para %s", len(text), self.locality)
-        return self._parse_xml(
-            text
-        )  # ← método de instancia, mismo nivel que _async_update_data
+        return self._parse_xml(text)
 
     def _parse_xml(self, text: str) -> dict:
         try:
@@ -147,7 +152,7 @@ class PIAPollenCoordinator(DataUpdateCoordinator):
             _LOGGER.debug(
                 "pia_pollen: %d sensores listos: %s", len(result), list(result.keys())
             )
-
+        _LOGGER.debug("pia_pollen coordinator.data keys: %s", list(result.keys()))
         return result
 
 
@@ -203,18 +208,19 @@ class PIAPollenSensor(CoordinatorEntity, SensorEntity):
         }
 
     @property
-    def native_value(self) -> int | None:
+    def native_value(self) -> str | None:
         data = self.coordinator.data.get(self._taxon)
-        return data["level"] if data else None
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        return "nivel"
+        if not data:
+            return None
+        level = data["level"]
+        prefix = LEVEL_PREFIX.get(self.coordinator.lang, "Nivel")
+        return f"{prefix} {level}"
 
     @property
     def extra_state_attributes(self) -> dict:
         data = self.coordinator.data.get(self._taxon, {})
         return {
+            "level": data.get("level"),
             "level_label": data.get("level_label", ""),
             "trend": data.get("trend", ""),
             "trend_label": data.get("trend_label", ""),
@@ -222,4 +228,7 @@ class PIAPollenSensor(CoordinatorEntity, SensorEntity):
             "type": data.get("type", ""),
             "code": data.get("code", ""),
             "locality": self._locality,
+            "station": data.get("station", ""),
+            "period_start": data.get("period_start", ""),
+            "period_end": data.get("period_end", ""),
         }
