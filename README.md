@@ -8,6 +8,16 @@ _PIA. Point of Information on Aerobiology - Aerobiology Network of Catalonia._
 
 Polen y esporas
 
+## Instalación via HACS
+1. Añadir este repositorio como repositorio custom en HACS
+2. Buscar "PIA Polen" e instalar
+3. Reiniciar Home Assistant
+4. Ir a **Ajustes → Integraciones → Añadir integración** → buscar *PIA Polen*
+
+## Sensores creados
+Un sensor por taxón con `native_value` = nivel (0–4) y atributos:
+`level_label`, `trend`, `trend_label`, `scientific`, `period_start`, `period_end`
+
 ## Características
 
 * Sensores de nivel (native_value: 0–4) con level_label (Nulo/Bajo/Medio/Alto/Máximo)
