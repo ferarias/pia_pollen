@@ -1,8 +1,9 @@
 import voluptuous as vol
+
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN, LOCALITIES, LANGUAGES, DEFAULT_LANG
+from .const import DEFAULT_LANG, DOMAIN, LANGUAGES, LOCALITIES
 
 
 class PIAPollenConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -17,8 +18,10 @@ class PIAPollenConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data=user_input,
             )
 
-        schema = vol.Schema({
-            vol.Required("locality", default="palma"): vol.In(LOCALITIES),
-            vol.Required("lang", default=DEFAULT_LANG): vol.In(LANGUAGES),
-        })
+        schema = vol.Schema(
+            {
+                vol.Required("locality", default="palma"): vol.In(LOCALITIES),
+                vol.Required("lang", default=DEFAULT_LANG): vol.In(LANGUAGES),
+            }
+        )
         return self.async_show_form(step_id="user", data_schema=schema)

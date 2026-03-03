@@ -28,18 +28,23 @@ async def async_setup_entry(
     lang = entry.data["lang"]
     url = BASE_URL.format(locality=locality, lang=lang)
 
-    coordinator = PIAPollenCoordinator(hass, url, locality)
+    coordinator = PIAPollenCoordinator(hass, url, locality, lang)
     await coordinator.async_config_entry_first_refresh()
 
     entities = [
         PIAPollenSensor(coordinator, taxon_name, locality)
         for taxon_name in coordinator.data
     ]
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities, update_before_add=False)
+
+
+# ──────────────────────────────────────────────────────────────
+#  Coordinator
+# ──────────────────────────────────────────────────────────────
 
 
 class PIAPollenCoordinator(DataUpdateCoordinator):
-    def __init__(self, hass: HomeAssistant, url: str, locality: str) -> None:
+    def __init__(self, hass: HomeAssistant, url: str, locality: str, lang: str) -> None:
         super().__init__(
             hass,
             _LOGGER,
@@ -48,6 +53,7 @@ class PIAPollenCoordinator(DataUpdateCoordinator):
         )
         self.url = url
         self.locality = locality
+        self.lang = lang
 
     async def _async_update_data(self) -> dict:
         try:
@@ -62,7 +68,9 @@ class PIAPollenCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Error de red: {err}") from err
 
         _LOGGER.debug("PIA XML recibido (%d bytes) para %s", len(text), self.locality)
-        return self._parse_xml(text)
+        return self._parse_xml(
+            text
+        )  # ← método de instancia, mismo nivel que _async_update_data
 
     def _parse_xml(self, text: str) -> dict:
         try:
@@ -70,45 +78,98 @@ class PIAPollenCoordinator(DataUpdateCoordinator):
         except ET.ParseError as err:
             raise UpdateFailed(f"Error parseando XML: {err}") from err
 
+        # 1. Mapa código → nombre común + tipo (pollens/spores)
+        code_to_info: dict[str, dict] = {}
+        for group in root.findall("./taxons/"):  # <pollens> y <spores>
+            for elem in group:
+                code = elem.tag  # "URTI", "GRAM", etc.
+                common_name = elem.get(self.lang) or elem.get("es") or code
+                scientific = (elem.text or "").strip()
+                code_to_info[code] = {
+                    "name": common_name,
+                    "scientific": scientific,
+                    "type": group.tag,  # "pollens" o "spores"
+                }
+
+        _LOGGER.debug("Taxons definidos: %s", list(code_to_info.keys()))
+
+        # 2. Niveles: texto de cada elemento en <report><current><pollens|spores>
+        levels: dict[str, int] = {}
+        for group in root.findall("./report/current/"):  # <pollens> y <spores>
+            for elem in group:
+                try:
+                    levels[elem.tag] = int((elem.text or "0").strip())
+                except ValueError:
+                    levels[elem.tag] = 0
+
+        # 3. Tendencias: texto de cada elemento en <report><forecast><pollens|spores>
+        trends: dict[str, str] = {}
+        for group in root.findall("./report/forecast/"):
+            for elem in group:
+                trends[elem.tag] = (elem.text or "=").strip()
+
+        # 4. Metadatos de la estación y período
+        station_name = root.findtext("./report/station/name", default="")
+        date_start = root.findtext("./report/date/start", default="")
+        date_end = root.findtext("./report/date/end", default="")
+
+        _LOGGER.debug(
+            "Estación: %s | Período: %s → %s | Niveles: %s",
+            station_name,
+            date_start,
+            date_end,
+            levels,
+        )
+
+        # 5. Combinar todo en el resultado final
         result = {}
-
-        # root.iter("taxon") busca <taxon> en cualquier nivel del árbol,
-        # sin importar cómo estén anidados (robusto ante estructura desconocida).
-        for taxon in root.iter("taxon"):
-            # Intenta estructura por sub-elementos primero; si no, por atributos
-            name = (taxon.findtext("name") or taxon.get("name", "")).strip()
-            level_raw = (taxon.findtext("level") or taxon.get("level", "0")).strip()
-            trend_raw = (taxon.findtext("trend") or taxon.get("trend", "0")).strip()
-
-            if not name:
-                continue
-
-            try:
-                level_int = int(level_raw)
-            except ValueError:
-                level_int = 0
-
-            result[name] = {
+        for code, info in code_to_info.items():
+            if code not in levels:
+                continue  # taxón definido pero sin datos
+            level_int = levels[code]
+            trend_raw = trends.get(code, "=")
+            result[info["name"]] = {
                 "level": level_int,
-                "level_label": LEVEL_LABELS.get(level_int, level_raw),
+                "level_label": LEVEL_LABELS.get(level_int, str(level_int)),
                 "trend": trend_raw,
                 "trend_label": TREND_LABELS.get(trend_raw, trend_raw),
+                "code": code,
+                "scientific": info["scientific"],
+                "type": info["type"],
+                "station": station_name,
+                "period_start": date_start,
+                "period_end": date_end,
             }
 
         if not result:
-            # Si esto aparece en los logs, pega el fragmento XML aquí
-            # para ajustar los XPath en _parse_xml
-            _LOGGER.warning(
-                "pia_pollen: no se encontraron <taxon> en el XML. "
-                "Fragmento recibido:\n%s", text[:600]
+            _LOGGER.warning("pia_pollen: sin datos de nivel. XML:\n%s", text[:3000])
+        else:
+            _LOGGER.debug(
+                "pia_pollen: %d sensores listos: %s", len(result), list(result.keys())
             )
 
         return result
 
 
+# ──────────────────────────────────────────────────────────────
+#  Sensor entity
+# ──────────────────────────────────────────────────────────────
+
+
 def _slugify(text: str) -> str:
-    """Convierte nombre de taxón a slug válido para unique_id."""
-    replacements = {"á":"a","é":"e","í":"i","ó":"o","ú":"u","ü":"u","ñ":"n"," ":"_"}
+    replacements = {
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ú": "u",
+        "ü": "u",
+        "ñ": "n",
+        " ": "_",
+        "(": "",
+        ")": ",",
+        "/": "_",
+    }
     result = text.lower()
     for src, dst in replacements.items():
         result = result.replace(src, dst)
@@ -157,6 +218,8 @@ class PIAPollenSensor(CoordinatorEntity, SensorEntity):
             "level_label": data.get("level_label", ""),
             "trend": data.get("trend", ""),
             "trend_label": data.get("trend_label", ""),
+            "scientific": data.get("scientific", ""),
+            "type": data.get("type", ""),
+            "code": data.get("code", ""),
             "locality": self._locality,
-            "taxon": self._taxon,
         }
