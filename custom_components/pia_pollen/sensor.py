@@ -182,7 +182,6 @@ def _slugify(text: str) -> str:
 
 
 class PIAPollenSensor(CoordinatorEntity, SensorEntity):
-    _attr_icon = "mdi:flower-pollen"
     _attr_has_entity_name = True
 
     def __init__(
@@ -206,6 +205,13 @@ class PIAPollenSensor(CoordinatorEntity, SensorEntity):
             "model": "PIA API v0",
             "configuration_url": "https://aerobiologia.cat/pia/es/api",
         }
+
+    @property
+    def icon(self) -> str:
+        data = self.coordinator.data.get(self._taxon, {})
+        if data.get("type") == "spores":
+            return "mdi:flower-pollen-outline"
+        return "mdi:flower-pollen"
 
     @property
     def native_value(self) -> str | None:
