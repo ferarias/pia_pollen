@@ -6,7 +6,7 @@ _PIA. Punto de Información Aerobiológica - Red Aerobiológica de Cataluña._
 _PIA. Punt d'Informació Aerobiològica - Xarxa Aerobiològica de Catalunya._  
 _PIA. Point of Information on Aerobiology - Aerobiology Network of Catalonia._
 
-Polen y esporas
+![Polen y esporas](custom_components/pia_pollen/brand/icon.png)
 
 ## Instalación via HACS
 1. Añadir este repositorio como repositorio custom en HACS
